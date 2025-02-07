@@ -1,1 +1,6 @@
 fastapi
+openai
+langchain
+langchain-openai
+faiss-cpu
+pydantic
