@@ -6,4 +6,6 @@
 
 4 step - pip install -r requirements.txt
 
-5 step - uvicorn main:app --reload 
+5 step - .env replace your open ai key
+
+6 step - uvicorn main:app --reload 
