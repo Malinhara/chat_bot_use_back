@@ -59,7 +59,7 @@
 
 import os
 from pathlib import Path
-from typing import Dict, Optional,List
+from typing import Dict, Optional, List
 import openai
 from fastapi import Depends, FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -69,52 +69,37 @@ from langchain.vectorstores import FAISS
 from langchain.document_loaders import PyPDFLoader, TextLoader
 from langchain_openai import OpenAI
 from langchain.chains import RetrievalQA
-from sqlalchemy import create_engine, Column, Integer, String
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
-from pydantic import BaseModel
+from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel, EmailStr
 from dotenv import load_dotenv
 from passlib.context import CryptContext
-import psycopg2
-from psycopg2 import OperationalError
+# import asyncio
 
-DATABASE_URL = "postgresql://postgres:1234@localhost:5432/postgres"
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+# Load environment variables
+load_dotenv()
+
+MONGO_URI = os.getenv("MONGO_URI")  # MongoDB connection string
+DATABASE_NAME = "chatbot_db"
+
+# Initialize MongoDB connection
+client = AsyncIOMotorClient(MONGO_URI)
+db = client[DATABASE_NAME]
+users_collection = db["users"]
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 app = FastAPI()
 
 class UserLogin(BaseModel):
-    email: str
+    email: EmailStr
     password: str
 
 class UserRegister(BaseModel):
-    email: str
+    email: EmailStr
     password: str
     
-class User(Base):
-    __tablename__ = 'users'
-
-    email = Column(String(255), primary_key=True)  # Ensure a sufficient length for email
-    password = Column(String(255))  # Ensure a sufficient length for password
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-        
-load_dotenv()
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    raise ValueError("OPENAI_API_KEY not found")
-
-openai.api_key = OPENAI_API_KEY
+class delete(BaseModel):
+    filename: str
 
 UPLOAD_DIR = Path("uploads")
 VECTOR_DIR = Path("vector_stores")
@@ -123,7 +108,6 @@ ALLOWED_EXTENSIONS = {".pdf", ".txt"}
 UPLOAD_DIR.mkdir(exist_ok=True)
 VECTOR_DIR.mkdir(exist_ok=True)
 
-app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -136,21 +120,36 @@ class ChatQuery(BaseModel):
     query: str
     doc_name: str
 
-
-class delete(BaseModel):
+class DeleteFileRequest(BaseModel):
     filename: str
 
 vector_store_cache: Dict[str, FAISS] = {}
 
+
+# async def verify_connection():
+#     try:
+#         client = AsyncIOMotorClient(MONGO_URI)
+#         db = client[DATABASE_NAME]
+        
+#         # Run a simple command to check connection
+#         server_info = await db.command("ping")
+#         print("✅ MongoDB Connection Successful!", server_info)
+        
+#     except Exception as e:
+#         print(f"❌ MongoDB Connection Failed: {e}")
+
+
+# asyncio.run(verify_connection())
+
 def process_document(file_path: Path) -> FAISS:
     loader = PyPDFLoader(str(file_path)) if file_path.suffix == ".pdf" else TextLoader(str(file_path))
     documents = loader.load()
-    
+
     texts = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200
     ).split_documents(documents)
-    
+
     embeddings = OpenAIEmbeddings()
     return FAISS.from_documents(texts, embeddings)
 
@@ -163,60 +162,30 @@ def get_vectorstore(file_path: Path) -> FAISS:
     return vectorstore
 
 
-
-
-def verify_db_connection():
-    try:
-        # Try to connect to the database
-        with psycopg2.connect(DATABASE_URL) as conn:
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT 1;")
-                result = cursor.fetchone()
-                if result:
-                    print("Database connection verified successfully!")
-                else:
-                    print("Failed to verify the database connection.")
-    except OperationalError as e:
-        print(f"Database connection failed: {e}")
-
-# Verify the connection when the app starts
-verify_db_connection()
-
-
-
 @app.post("/register")
-async def register(user: UserRegister, db: Session = Depends(get_db)):
-    # Query the database using the User model
-    db_user = db.query(User).filter(User.email == user.email).first()
+async def register(user: UserRegister):
+    existing_user = await users_collection.find_one({"email": user.email})
     
-    if db_user:
+    if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     
-    # Hash the password using CryptContext
     hashed_password = pwd_context.hash(user.password)
     
-    # Create a new User instance (use the actual User model here)
-    new_user = User(email=user.email, password=hashed_password)
-    
-    # Add the new user to the session, commit, and refresh to get the updated user
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
+    new_user = {"email": user.email, "password": hashed_password}
+    await users_collection.insert_one(new_user)
     
     return {"message": "User registered successfully"}
 
 
-# Login route
 @app.post("/login")
-async def login(user: UserLogin, db: Session = Depends(get_db)):
-    # Query the database using the User model and the email
-    db_user = db.query(User).filter(User.email == user.email).first()
+async def login(user: UserLogin):
+    existing_user = await users_collection.find_one({"email": user.email})
     
-    # Check if the user exists and if the password is correct
-    if not db_user or not pwd_context.verify(user.password, db_user.password):
+    if not existing_user or not pwd_context.verify(user.password, existing_user["password"]):
         raise HTTPException(status_code=400, detail="Invalid credentials")
     
     return {"message": "Login successful"}
+
 
 
 @app.post("/upload")
