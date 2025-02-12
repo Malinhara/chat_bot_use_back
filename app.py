@@ -16,8 +16,6 @@ from sqlalchemy.orm import sessionmaker, Session
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from passlib.context import CryptContext
-import psycopg2
-from psycopg2 import OperationalError
 
 load_dotenv()
 
@@ -111,22 +109,7 @@ def get_vectorstore(file_path: Path) -> FAISS:
 
 
 
-def verify_db_connection():
-    try:
-        # Try to connect to the database
-        with psycopg2.connect(DATABASE_URL) as conn:
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT 1;")
-                result = cursor.fetchone()
-                if result:
-                    print("Database connection verified successfully!")
-                else:
-                    print("Failed to verify the database connection.")
-    except OperationalError as e:
-        print(f"Database connection failed: {e}")
 
-# Verify the connection when the app starts
-verify_db_connection()
 
 
 
