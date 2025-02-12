@@ -2,10 +2,10 @@ import os
 from pathlib import Path
 from typing import Dict, Optional,List
 import openai
+from langchain_openai import OpenAIEmbeddings
 from fastapi import Depends, FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.document_loaders import PyPDFLoader, TextLoader
 from langchain_openai import OpenAI
@@ -57,6 +57,8 @@ def get_db():
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY not found")
+
+
 
 openai.api_key = OPENAI_API_KEY
 
@@ -223,11 +225,8 @@ async def chat_with_document(chat_query: ChatQuery):
             OpenAI(temperature=0),
             retriever=vectorstore.as_retriever()
         )
-        
+    
         return {"response": qa_chain.run(chat_query.query)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8100)
