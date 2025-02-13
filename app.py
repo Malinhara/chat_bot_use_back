@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 from passlib.context import CryptContext
 import psycopg2
 from psycopg2 import OperationalError
+import bcrypt
 
 load_dotenv()
 
